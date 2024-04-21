@@ -3,3 +3,5 @@
 /Introduction to PyTorch/optimizing-model-parameters/data/*
 
 
+Introduction to PyTorch/save-and-load-the-model/model_weights.pth
+Introduction to PyTorch/save-and-load-the-model/model.pth
