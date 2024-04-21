@@ -1,5 +1,5 @@
-*
-!*.py
-!*.ipynb
-!.gitignore
+/**/__pycache__
+/.DS_Store
+/Introduction to PyTorch/optimizing-model-parameters/data/*
+
 
