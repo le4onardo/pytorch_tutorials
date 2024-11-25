@@ -74,10 +74,14 @@ target_net = Network(env)
 
 target_net.load_state_dict(online_net.state_dict())
 
+# Optimizing on the online_net parameters
+optimizer = torch.optim.Adam(online_net.parameters(), lr=5e-4)
+
 # Initialize Replay Buffer
 obs = env.reset()
 for _ in range(MIN_REPLAY_SIZE):
     action = env.action_space.sample()
+    print('action', env.action_space, action)
     new_obs, reward, done, info = env.step(action)
     transition = (obs, action, reward, done, new_obs)
     
@@ -122,12 +126,44 @@ for step in itertools.count():
     # and converts it to a numpy matrix
     transitions = np.asarray(random.sample(replay_buffer, BATH_SIZE))
 
+    # Gets every column from matrix and converts it to tensor
     obs_t = torch.as_tensor(transitions[:, 0], dtype=torch.float32)
-    actions_t = torch.as_tensor(transitions[:, 1], dtype = torch.int64)
-    rewards_t = torch.as_tensor(transitions[:, 2], dtype = torch.float32)
-    dones_t = torch.as_tensor(transitions[:, 3], dtype = torch.float32)
-    new_obs_t = torch.as_tensor(transitions[:, 4], dtype = torch.float32)
+    actions_t = torch.as_tensor(transitions[:, 1], dtype = torch.int64).unsqueeze(-1)
+    rewards_t = torch.as_tensor(transitions[:, 2], dtype = torch.float32).unsqueeze(-1)
+    dones_t = torch.as_tensor(transitions[:, 3], dtype = torch.float32).unsqueeze(-1)
+    new_obs_t = torch.as_tensor(transitions[:, 4], dtype = torch.float32).unsqueeze(-1)
 
+    # Compute targets 
+    target_q_values = target_net(new_obs_t)
+    # Each new_obs_t has many q_values, so we select the max q_value for each new_obs 
+    max_target_q_values = target_q_values.max(dim=1, keepdim=True)[0]
+
+    targets  = rewards_t + GAMMA * (1-dones_t) * max_target_q_values
     
+    # Compute Loss
+    q_values = online_net(obs_t)
     
+    action_q_values = torch.gather(input=q_values, dim=1, index=actions_t)
+
+    # action_q_values current output, targets is the desired output
+    loss = nn.functional.smooth_l1_loss(action_q_values, targets)
+
+    # Gradient Descent
+    # Pytorch accumulates gradients on every backward call, so its standard to clear previous gradient 
+    optimizer.zero_grad()
+    # Computes gradients
+    loss.backward()
+    # Applies gradients in online_net parameters
+    optimizer.step()
+
+    # Update Target Network
+    if step % TARGET_UPDATE_FREQ == 0:
+        target_net.load_state_dict(online_net.state_dict())
+
+    # Logging
+    if step % 100 == 0:
+        print()
+        print('Step', step)
+        print('Avg reward', np.mean(reward_buffer))
+
 
