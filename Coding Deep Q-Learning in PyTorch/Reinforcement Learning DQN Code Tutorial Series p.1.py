@@ -6,7 +6,6 @@ import itertools
 import numpy as np
 import random
 
-
 # Discount rate
 GAMMA=0.99
 # Transitions to sample from replay buffer to train dqn
@@ -58,7 +57,7 @@ class Network(nn.Module):
 
 
 # Create cartpole env
-env = gym.make('CartPole-v0')
+env = gym.make('CartPole-v1')
 
 # Replay buffer standard Deque
 replay_buffer = deque(maxlen=BUFFER_SIZE)
@@ -78,11 +77,10 @@ target_net.load_state_dict(online_net.state_dict())
 optimizer = torch.optim.Adam(online_net.parameters(), lr=5e-4)
 
 # Initialize Replay Buffer
-obs = env.reset()
+obs, *_ = env.reset()
 for _ in range(MIN_REPLAY_SIZE):
     action = env.action_space.sample()
-    print('action', env.action_space, action)
-    new_obs, reward, done, info = env.step(action)
+    new_obs, reward, done, info, *_ = env.step(action)
     transition = (obs, action, reward, done, new_obs)
     
     # save transition tuple in buffer
@@ -90,14 +88,14 @@ for _ in range(MIN_REPLAY_SIZE):
     obs = new_obs
 
     if done:
-        obs = env.reset()
+        obs, *_ = env.reset()
 
 
 # Main training loop
-obs = env.reset()
+obs, *_ = env.reset()
 
-# Iterate infinetly
-for step in itertools.count():
+# EPISODES - Infinity
+for step in range(130000):
     # Interpolation: 
     # Starts from 100% to 2% chance to get a random action on "epsilon_decay" steps 
     epsilon = np.interp(step, [0, EPSILON_DECAY], [EPSILON_START, EPSILON_END])
@@ -107,31 +105,30 @@ for step in itertools.count():
         action = env.action_space.sample()
     else:
         action = online_net.act(obs)
-
-    new_obs, reward, done, _info = env.step(action)
+        
+    new_obs, reward, done, *_ = env.step(action)
     transition = (obs, action, reward, done, new_obs)
     replay_buffer.append(transition)
     obs = new_obs
     
     episode_reward += reward
     if done:
-        obs = env.reset()
+        obs, *_ = env.reset()
         reward_buffer.append(episode_reward)
         episode_reward = 0.0
-    
+
 
     # Start Gradient Step
 
     # Chooses BATCH_SIZE random samples from replay_buffer
     # and converts it to a numpy matrix
-    transitions = np.asarray(random.sample(replay_buffer, BATH_SIZE))
-
+    transitions = np.asarray(random.sample(replay_buffer, BATH_SIZE), dtype=object)
     # Gets every column from matrix and converts it to tensor
-    obs_t = torch.as_tensor(transitions[:, 0], dtype=torch.float32)
-    actions_t = torch.as_tensor(transitions[:, 1], dtype = torch.int64).unsqueeze(-1)
-    rewards_t = torch.as_tensor(transitions[:, 2], dtype = torch.float32).unsqueeze(-1)
-    dones_t = torch.as_tensor(transitions[:, 3], dtype = torch.float32).unsqueeze(-1)
-    new_obs_t = torch.as_tensor(transitions[:, 4], dtype = torch.float32).unsqueeze(-1)
+    obs_t = torch.as_tensor(np.array(list(transitions[:, 0]), dtype=np.float32))
+    actions_t = torch.as_tensor(np.array(list(transitions[:, 1]), dtype = np.int64)).unsqueeze(-1)
+    rewards_t = torch.as_tensor(np.array(list(transitions[:, 2]), dtype = np.float32)).unsqueeze(-1)
+    dones_t = torch.as_tensor(np.array(list(transitions[:, 3]), dtype = np.float32)).unsqueeze(-1)
+    new_obs_t = torch.as_tensor(np.array(list(transitions[:, 4]), dtype = np.float32))
 
     # Compute targets 
     target_q_values = target_net(new_obs_t)
@@ -159,11 +156,32 @@ for step in itertools.count():
     # Update Target Network
     if step % TARGET_UPDATE_FREQ == 0:
         target_net.load_state_dict(online_net.state_dict())
+        
+        if np.mean(reward_buffer) >= 400:
+            break
 
     # Logging
-    if step % 100 == 0:
+    if step % 1000 == 0:
         print()
         print('Step', step)
         print('Avg reward', np.mean(reward_buffer))
+    
 
+print('Model trained!')
+env.close()
+
+# Test model and render game!
+env = gym.make('CartPole-v1', render_mode="human")
+obs, *_ = env.reset()
+total_reward = 0
+
+while True:
+    action = online_net.act(obs)
+    obs, reward, done, *_ = env.step(action)
+    total_reward+=reward
+    env.render()
+    if done:
+        print('DONE, Total reward:', total_reward)
+        total_reward=0
+        obs, *_ = env.reset()
 
